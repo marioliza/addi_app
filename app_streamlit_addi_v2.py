@@ -1,4 +1,3 @@
-
 import io
 from io import BytesIO
 import zipfile
@@ -6,6 +5,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Tuple
 import math
 import os
+import unicodedata
 
 import pandas as pd
 import streamlit as st
@@ -63,41 +63,173 @@ class ProgressTracker:
 # =========================
 # CONFIG (ajustable en código)
 # =========================
-# Coordenadas/etiquetas de bodegas (solo para referencias; el modo rápido no las usa).
+# Coordenadas/etiquetas de bodegas (solo para referencias; la asignación usa 'city' para empatar).
 WAREHOUSES = [
     {"label": "Bogotá #2 - Montevideo", "city": "Bogotá"},
     {"label": "Medellín #2 - Sabaneta Mayorca", "city": "Medellín"},
 ]
 
-# ===== Asignación RÁPIDA de bodega (sin geocodificación) =====
-CITIES_MEDELLIN = {
-    "medellin","medellín","sabaneta","itagui","itagüí","envigado","bello","la estrella","caldas",
-    "girardota","copacabana","rionegro","el santuario","santuario","guarne","santo domingo",
-    "santa fe de antioquia","amaga","barbosa","marinilla"
-}
-CITIES_BOGOTA = {
-    "bogota","bogotá","funza","mosquera","soacha","chia","chía","cota","tocancipa","tocancipá",
-    "zipaquira","zipaquirá","facatativa","facatativá","tenjo","siberia"
-}
-DEPT_MEDELLIN = {"antioquia"}
-DEPT_BOGOTA = {"bogotá, d.c.","cundinamarca","bogota d.c.","bogotá d.c.","bogota, d.c."}
+# ===== Asignación por CIUDADES (con normalización y fallback) =====
+def _norm(s: str) -> str:
+    s = str(s or "").strip().lower()
+    s = "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+    return s
 
-def assign_bodega_fast(row: pd.Series) -> str:
-    city_val = str(row.get("Ciudad", "") or "").strip().lower()
-    dept_val = str(row.get("Departamento", "") or "").strip().lower()
-    if city_val in CITIES_MEDELLIN:
-        return WAREHOUSES[1]["label"]
-    if city_val in CITIES_BOGOTA:
-        return WAREHOUSES[0]["label"]
-    if dept_val in DEPT_MEDELLIN:
-        return WAREHOUSES[1]["label"]
-    if dept_val in DEPT_BOGOTA:
-        return WAREHOUSES[0]["label"]
-    if any(k in city_val for k in ["medellin","medellín","sabaneta","itagui","itagüí","envigado","bello"]):
-        return WAREHOUSES[1]["label"]
-    if any(k in city_val for k in ["bogota","bogotá","funza","mosquera","soacha","chia","chía","cota","zipaquira","zipaquirá"]):
-        return WAREHOUSES[0]["label"]
+def _get_wh_label_for_city(hub_city_norm: str) -> str:
+    """
+    Devuelve la etiqueta del warehouse según el 'city' definido en WAREHOUSES.
+    Si tienes más warehouses en el futuro, solo ajusta WAREHOUSES.
+    """
+    for wh in WAREHOUSES:
+        if _norm(wh.get("city", "")) == hub_city_norm:
+            return wh["label"]
+    # Fallback seguro (si no encuentra coincidencia exacta en WAREHOUSES)
     return WAREHOUSES[0]["label"]
+
+# Tabla principal CIUDAD -> HUB ("medellin" | "bogota")
+CITY_TO_HUB = {
+    # Área metropolitana de Medellín + Oriente cercano
+    "medellin": "medellin", "medellín": "medellin", "itagui": "medellin", "itagüi": "medellin",
+    "envigado": "medellin", "sabaneta": "medellin", "bello": "medellin", "la estrella": "medellin",
+    "caldas": "medellin", "girardota": "medellin", "copacabana": "medellin",
+    "rionegro": "medellin", "marinilla": "medellin", "la ceja": "medellin", "guarne": "medellin",
+    "carmen de viboral": "medellin", "el retiro": "medellin", "santa rosa de osos": "medellin",
+    "don matias": "medellin", "don matías": "medellin", "la ceja del tambo": "medellin",
+    "santa fe de antioquia": "medellin", "sopetran": "medellin", "sopetrán": "medellin",
+    "san jeronimo": "medellin", "san jerónimo": "medellin", "andes": "medellin", "urrao": "medellin",
+    "sonson": "medellin", "sonsón": "medellin", "jardin": "medellin", "jardín": "medellin",
+    "apartado": "medellin", "apartadó": "medellin", "carepa": "medellin", "chigorodo": "medellin",
+    "chigorodó": "medellin", "turbo": "medellin", "necocli": "medellin", "necoclí": "medellin",
+
+    # Eje cafetero más cercano a Medellín
+    "pereira": "medellin", "dosquebradas": "medellin", "santa rosa de cabal": "medellin",
+    "manizales": "medellin", "villamaria": "medellin", "villamaría": "medellin",
+    "chinchina": "medellin", "chinchiná": "medellin",
+    "armenia": "medellin", "circasia": "medellin", "montenegro": "medellin", "quimbaya": "medellin",
+    "la tebaida": "medellin", "filandia": "medellin",
+
+    # Norte del Valle cercano a Medellín
+    "cartago": "medellin", "roldanillo": "medellin", "zarzal": "medellin",
+    "sevilla": "medellin", "la union": "medellin", "la unión": "medellin",
+
+    # Costa Caribe (generalmente se decide por Bogotá salvo Montería que se privilegia a Medellín)
+    "barranquilla": "bogota", "cartagena": "bogota", "santa marta": "bogota", "riohacha": "bogota",
+    "valledupar": "bogota", "monteria": "medellin", "montería": "medellin",
+    "sincelejo": "bogota", "magangue": "bogota", "magangué": "bogota",
+    "corozal": "bogota", "tolu": "bogota", "tolú": "bogota", "galapa": "bogota", "malambo": "bogota",
+    "baranoa": "bogota", "soledad": "bogota", "puerto colombia": "bogota",
+    "san onofre": "bogota", "turbaco": "bogota", "mahates": "bogota",
+    "el banco": "bogota", "aracataca": "bogota", "fundacion": "bogota", "fundación": "bogota",
+    "cienaga": "bogota", "ciénaga": "bogota", "dibulla": "bogota", "uribia": "bogota", "maicao": "bogota",
+    "santa rosa del sur": "bogota", "el carmen de bolivar": "bogota", "el carmen de bolívar": "bogota",
+
+    # Cundinamarca / Sabana de Bogotá
+    "bogota": "bogota", "bogotá": "bogota", "soacha": "bogota", "funza": "bogota", "mosquera": "bogota",
+    "madrid": "bogota", "chia": "bogota", "chía": "bogota", "cajica": "bogota", "cajicá": "bogota",
+    "zipaquira": "bogota", "zipaquirá": "bogota", "tocancipa": "bogota", "tocancipá": "bogota",
+    "cota": "bogota", "sibaté": "bogota", "sibate": "bogota", "la calera": "bogota",
+    "facatativa": "bogota", "facatativá": "bogota", "villeta": "bogota", "guaduas": "bogota",
+    "sesquile": "bogota", "sesquilé": "bogota", "cogua": "bogota", "anolaima": "bogota",
+    "el colegio": "bogota", "la mesa": "bogota", "viota": "bogota", "viotá": "bogota",
+
+    # Boyacá
+    "tunja": "bogota", "duitama": "bogota", "sogamoso": "bogota", "paipa": "bogota",
+    "villa de leyva": "bogota", "chiquinquira": "bogota", "chiquinquirá": "bogota",
+    "samaca": "bogota", "samacá": "bogota", "sasaima": "bogota",
+
+    # Tolima
+    "ibague": "bogota", "ibagué": "bogota", "espinal": "bogota", "melgar": "bogota",
+    "honda": "bogota", "rovira": "bogota", "lerida": "bogota", "lérida": "bogota",
+    "mariquita": "bogota", "chaparral": "bogota", "icononzo": "bogota", "fresno": "bogota",
+    "tocaima": "bogota", "purificacion": "bogota", "purificación": "bogota",
+    "saldaña": "bogota", "villahermosa": "bogota",
+
+    # Huila
+    "neiva": "bogota", "pitalito": "bogota", "garzon": "bogota", "garzón": "bogota",
+    "hobo": "bogota", "campoalegre": "bogota", "tarqui": "bogota", "palestina": "bogota",
+    "la plata": "bogota",
+
+    # Meta / Llanos
+    "villavicencio": "bogota", "acacias": "bogota", "acacías": "bogota",
+    "granada": "bogota", "cumaral": "bogota", "san martin": "bogota", "san martín": "bogota",
+    "restrepo": "bogota", "vista hermosa": "bogota", "puerto lopez": "bogota", "puerto lópez": "bogota",
+
+    # Santander / Norte de Santander
+    "bucaramanga": "bogota", "piedecuesta": "bogota", "floridablanca": "bogota", "giron": "bogota", "girón": "bogota",
+    "lebrija": "bogota", "san gil": "bogota", "curiti": "bogota", "curití": "bogota",
+    "el socorro": "bogota", "barbosa": "bogota", "ocaña": "bogota", "cucuta": "bogota", "cúcuta": "bogota",
+    "pamplona": "bogota", "abrego": "bogota", "ábrego": "bogota", "el zulia": "bogota",
+    "sardinata": "bogota", "toledo": "bogota", "chinácota": "bogota", "chinacota": "bogota",
+
+    # Casanare / Arauca
+    "yopal": "bogota", "tauramena": "bogota", "aguazul": "bogota", "paz de ariporo": "bogota",
+    "arauca": "bogota", "saravena": "bogota", "arauquita": "bogota",
+
+    # Caquetá / Putumayo / Guaviare / Amazonas
+    "florencia": "bogota", "san vicente del caguan": "bogota", "san vicente del caguán": "bogota",
+    "cartagena del chaira": "bogota", "cartagena del chairá": "bogota",
+    "el doncello": "bogota", "el pital": "bogota",
+    "mocoa": "bogota", "orito": "bogota", "puerto asis": "bogota", "puerto asís": "bogota", "sibundoy": "bogota",
+    "san jose del guaviare": "bogota", "san josé del guaviare": "bogota",
+    "el retorno": "bogota",
+    "leticia": "bogota", "puerto nariño": "bogota",
+
+    # Nariño (sur profundo tiende a Bogotá)
+    "pasto": "bogota", "ipiales": "bogota", "tuquerres": "bogota", "túquerres": "bogota", "cumbal": "bogota",
+    "tumaco": "bogota", "la cruz": "bogota",
+
+    # Valle (centro/sur hacia Bogotá; norte ya está en Medellín arriba)
+    "cali": "bogota", "yumbo": "bogota", "buga": "bogota", "tulua": "bogota", "tuluá": "bogota",
+    "palmira": "bogota", "el cerrito": "bogota", "florida": "bogota", "pradera": "bogota",
+}
+
+# Fallback por departamento si la ciudad no está mapeada
+DEPT_TO_HUB = {
+    "antioquia": "medellin",
+    "risaralda": "medellin", "quindio": "medellin", "quindío": "medellin", "caldas": "medellin", "choco": "medellin", "chocó": "medellin",
+    "cordoba": "medellin", "córdoba": "medellin",  # suele conectar mejor hacia Medellín
+    "valle del cauca": "bogota",  # centro/sur; el norte específico ya se trató por ciudad
+    "cundinamarca": "bogota", "bogota, d.c.": "bogota", "bogota d.c.": "bogota", "bogotá d.c.": "bogota", "bogota, d.c.": "bogota",
+    "boyaca": "bogota", "boyacá": "bogota",
+    "tolima": "bogota", "huila": "bogota", "meta": "bogota",
+    "santander": "bogota", "norte de santander": "bogota",
+    "arauca": "bogota", "casanare": "bogota",
+    "caqueta": "bogota", "caquetá": "bogota", "putumayo": "bogota", "guaviare": "bogota", "amazonas": "bogota",
+    "atlantico": "bogota", "atlántico": "bogota", "bolivar": "bogota", "bolívar": "bogota",
+    "magdalena": "bogota", "cesar": "bogota", "sucre": "bogota", "la guajira": "bogota",
+    "narino": "bogota", "nariño": "bogota",
+}
+
+# Heurísticas por palabras clave (si falla ciudad y depto)
+KEYWORDS_MEDELLIN = ["medellin", "medellin", "sabaneta", "itagui", "envigado", "bello", "antioquia", "uraba", "turbo", "apartado", "necocli"]
+KEYWORDS_BOGOTA   = ["bogota", "cundinamarca", "sabana", "zipaquira", "chia", "tocancipa", "boyaca", "santander", "tolima", "meta", "huila", "llanos"]
+
+def assign_bodega_by_city(row: pd.Series) -> str:
+    """
+    Asigna la bodega según la ciudad (tabla CITY_TO_HUB), con fallback por departamento y
+    por palabras clave. Devuelve la etiqueta del warehouse (WAREHOUSES[*]['label']).
+    """
+    city_val = _norm(row.get("Ciudad", ""))
+    dept_val = _norm(row.get("Departamento", ""))
+
+    # 1) Coincidencia directa por ciudad
+    hub = CITY_TO_HUB.get(city_val)
+    if hub:
+        return _get_wh_label_for_city(hub)
+
+    # 2) Fallback por departamento
+    hub = DEPT_TO_HUB.get(dept_val)
+    if hub:
+        return _get_wh_label_for_city(hub)
+
+    # 3) Heurística por palabras clave en ciudad/departamento
+    if any(k in city_val or k in dept_val for k in KEYWORDS_MEDELLIN):
+        return _get_wh_label_for_city("medellin")
+    if any(k in city_val or k in dept_val for k in KEYWORDS_BOGOTA):
+        return _get_wh_label_for_city("bogota")
+
+    # 4) Fallback neutro: Bogotá (troncal central)
+    return _get_wh_label_for_city("bogota")
 
 # =========================
 # SIDEBAR
@@ -108,7 +240,7 @@ with st.sidebar:
     header_row = st.number_input("Fila de encabezados del template", min_value=1, value=1, step=1)
     start_row = st.number_input("Fila inicial de escritura", min_value=1, value=3, step=1)  # Escribir desde A3
     default_prefix = st.text_input("Prefijo del nombre de salida", value="template_part")
-    st.caption("La asignación de **Bodega** es en modo RÁPIDO por ciudad/departamento. **La Ciudad se mantiene tal cual del origen**.")
+    st.caption("La asignación de **Bodega** se hace por ciudad (mapeo) con fallback por departamento. **La Ciudad se mantiene tal cual del origen**.")
 
 col_u1, col_u2 = st.columns(2)
 
@@ -330,8 +462,8 @@ def fill_one_chunk(
             value = resolve_value(spec, row, template_name, source_name)
             ws.cell(row=row_idx, column=c_idx, value=value)
 
-        # 2) Bodega automática (rápida)
-        b_label = assign_bodega_fast(row)
+        # 2) Bodega automática usando mapeo por ciudad/departamento
+        b_label = assign_bodega_by_city(row)
         if dest_bodega and dest_bodega in header_index:
             c_bod = header_index[dest_bodega]
             ws.cell(row=row_idx, column=c_bod, value=b_label)
@@ -433,7 +565,7 @@ if do_run:
 with st.expander("📝 Notas", expanded=False):
     st.markdown("""
     - **Seller**: Addi · **Función**: crear órdenes desde un Excel.
-    - **Bodega**: se escribe en 'Bodega' (si existe) o 'CEDIS de origen'. Se decide por reglas rápidas (ciudad/departamento).
+    - **Bodega**: se escribe en 'Bodega' (si existe) o 'CEDIS de origen'. Se decide por mapeo de ciudades con fallback por departamento/keywords.
     - **Ciudad**: se mantiene exactamente como viene del **origen**.
     - **Indicativo**: solo se llena la **columna C** (si su encabezado es 'Indicativo') con **57**; otras 'Indicativo' se dejan vacías.
     - **Escritura**: inicia en **A3** (configurable) y divide en archivos de **100** registros por defecto.
