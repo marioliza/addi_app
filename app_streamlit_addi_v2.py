@@ -66,7 +66,7 @@ class ProgressTracker:
 # =========================
 WAREHOUSES = [
     {"label": "Bogotá #2 - Montevideo", "city": "Bogotá"},
-    {"label": "Medellin #2 - Sabaneta Mayorca", "city": "Medellin"},  # SIN tilde en label y city
+    {"label": "Medellin #2 - Sabaneta Mayorca", "city": "Medellin"},  # SIN tilde
 ]
 
 # ===== Normalización / utilidades =====
@@ -78,64 +78,146 @@ def _norm(s: str) -> str:
 def _norm_hard(s: str) -> str:
     return re.sub(r"\s+", " ", _norm(s)).strip()
 
+def _slugify_no_spaces(s: str) -> str:
+    # minúscula, sin acentos, quitar cualquier cosa que no sea a-z0-9, quitar espacios
+    s0 = _norm(s)
+    s1 = re.sub(r"[^a-z0-9]+", "", s0)  # solo alfanumérico
+    return s1
+
+def make_external_order_slug(brand: str, empresa: str) -> str:
+    b = _slugify_no_spaces(brand or "")
+    e = _slugify_no_spaces(empresa or "")
+    return f"{b}-{e}".strip("-")
+
 def _get_wh_label_for_city(hub_city_norm: str) -> str:
     for wh in WAREHOUSES:
         if _norm(wh.get("city", "")) == hub_city_norm:
             return wh["label"]
     return WAREHOUSES[0]["label"]
 
-# ===== Mapeos ciudad/depto → hub =====
+# =========================
+# NUEVO CITY_TO_HUB (optimizado por menor tiempo terrestre)
+# =========================
 CITY_TO_HUB = {
-    # Medellín área y cercanías
+    # Área Metropolitana de Medellín + cercanías (ya estaban OK)
     "medellin": "medellin", "medellín": "medellin", "itagui": "medellin", "itagüi": "medellin",
     "envigado": "medellin", "sabaneta": "medellin", "bello": "medellin", "la estrella": "medellin",
     "caldas": "medellin", "girardota": "medellin", "copacabana": "medellin",
+    # Oriente cercano + Urabá (OK)
     "rionegro": "medellin", "marinilla": "medellin", "la ceja": "medellin", "guarne": "medellin",
     "carmen de viboral": "medellin", "el retiro": "medellin",
-    "santa fe de antioquia": "medellin", "sopetran": "medellin", "sopetrán": "medellin",
-    "san jeronimo": "medellin", "san jerónimo": "medellin",
-    "turbo": "medellin", "apartado": "medellin", "apartadó": "medellin",
-    "necocli": "medellin", "necoclí": "medellin",
+    "turbo": "medellin", "apartado": "medellin", "apartadó": "medellin", "necocli": "medellin", "necoclí": "medellin",
 
-    # Eje cafetero cercano
+    # Eje cafetero (mejor Medellín)
     "pereira": "medellin", "dosquebradas": "medellin", "santa rosa de cabal": "medellin",
     "manizales": "medellin", "villamaria": "medellin", "villamaría": "medellin",
-    "armenia": "medellin", "circasia": "medellin", "montenegro": "medellin",
+    "armenia": "medellin", "circasia": "medellin", "montenegro": "medellin", "quimbaya": "medellin",
+    "la tebaida": "medellin", "filandia": "medellin",
 
-    # Norte del Valle cercano
+    # Norte del Valle (mejor Medellín)
     "cartago": "medellin", "roldanillo": "medellin", "zarzal": "medellin", "sevilla": "medellin",
     "la union": "medellin", "la unión": "medellin",
 
-    # Caribe (por defecto Bogotá; Montería a Medellín)
-    "barranquilla": "bogota", "cartagena": "bogota", "santa marta": "bogota", "riohacha": "bogota",
-    "valledupar": "bogota", "monteria": "medellin", "montería": "medellin",
-    "sincelejo": "bogota", "cienaga": "bogota", "ciénaga": "bogota",
+    # Costa Caribe (cambiar a Medellín)
+    "barranquilla": "medellin", "cartagena": "medellin", "santa marta": "medellin", "riohacha": "medellin",
+    "valledupar": "medellin", "monteria": "medellin", "montería": "medellin",
+    "sincelejo": "medellin", "magangue": "medellin", "magangué": "medellin",
+    "corozal": "medellin", "tolu": "medellin", "tolú": "medellin",
+    "galapa": "medellin", "malambo": "medellin", "baranoa": "medellin", "puerto colombia": "medellin",
+    "san onofre": "medellin", "turbaco": "medellin", "mahates": "medellin",
+    "el banco": "medellin", "aracataca": "medellin", "fundacion": "medellin", "fundación": "medellin",
+    "cienaga": "medellin", "ciénaga": "medellin", "dibulla": "medellin", "uribia": "medellin", "maicao": "medellin",
+    "santa rosa del sur": "medellin", "el carmen de bolivar": "medellin", "el carmen de bolívar": "medellin",
 
-    # Sabana/Cundinamarca y otros
+    # Santander – split
+    # Área metropolitana de Bucaramanga → Medellín
+    "bucaramanga": "medellin", "floridablanca": "medellin", "piedecuesta": "medellin",
+    "giron": "medellin", "girón": "medellin", "lebrija": "medellin",
+    # Provincia Guanentá etc. → Bogotá
+    "san gil": "bogota", "curiti": "bogota", "curití": "bogota",
+    "el socorro": "bogota", "barbosa": "bogota",
+
+    # Norte de Santander – split
+    # Capital y área cercana → Medellín (ligeramente menor tiempo)
+    "cucuta": "medellin", "cúcuta": "medellin", "el zulia": "medellin",
+    # Corredor Pamplona/Chinácota/Toledo → Bogotá
+    "pamplona": "bogota", "chinacota": "bogota", "chinácota": "bogota", "toledo": "bogota",
+    "abrego": "bogota", "ábrego": "bogota", "sardinata": "bogota",
+
+    # Cundinamarca/Sabana (Bogotá)
     "bogota": "bogota", "bogotá": "bogota", "soacha": "bogota", "funza": "bogota", "mosquera": "bogota",
     "madrid": "bogota", "chia": "bogota", "chía": "bogota", "zipaquira": "bogota", "zipaquirá": "bogota",
     "cajica": "bogota", "cajicá": "bogota", "tocancipa": "bogota", "tocancipá": "bogota",
     "cota": "bogota", "la calera": "bogota",
-    "tunja": "bogota", "ibague": "bogota", "ibagué": "bogota",
-    "neiva": "bogota", "villavicencio": "bogota",
-    "bucaramanga": "bogota", "cucuta": "bogota", "cúcuta": "bogota",
-    "yopal": "bogota", "arauca": "bogota",
-    "pasto": "bogota", "cali": "bogota", "yumbo": "bogota", "buga": "bogota", "palmira": "bogota",
+
+    # Boyacá (Bogotá)
+    "tunja": "bogota", "paipa": "bogota", "villa de leyva": "bogota",
+    "chiquinquira": "bogota", "chiquinquirá": "bogota", "samaca": "bogota", "samacá": "bogota",
+
+    # Tolima (Bogotá)
+    "ibague": "bogota", "ibagué": "bogota", "espinal": "bogota", "melgar": "bogota",
+    "honda": "bogota", "rovira": "bogota", "lerida": "bogota", "lérida": "bogota",
+    "mariquita": "bogota", "chaparral": "bogota", "icononzo": "bogota", "fresno": "bogota",
+    "tocaima": "bogota", "purificacion": "bogota", "purificación": "bogota",
+    "saldaña": "bogota", "villahermosa": "bogota",
+
+    # Huila (Bogotá)
+    "neiva": "bogota", "pitalito": "bogota", "garzon": "bogota", "garzón": "bogota",
+    "hobo": "bogota", "campoalegre": "bogota", "tarqui": "bogota", "palestina": "bogota", "la plata": "bogota",
+
+    # Meta / Llanos (Bogotá)
+    "villavicencio": "bogota", "acacias": "bogota", "acacías": "bogota",
+    "granada": "bogota", "cumaral": "bogota", "san martin": "bogota", "san martín": "bogota",
+    "restrepo": "bogota", "vista hermosa": "bogota", "puerto lopez": "bogota", "puerto lópez": "bogota",
+
+    # Casanare / Arauca (Bogotá)
+    "yopal": "bogota", "tauramena": "bogota", "aguazul": "bogota", "paz de ariporo": "bogota",
+    "arauca": "bogota", "saravena": "bogota", "arauquita": "bogota",
+
+    # Caquetá / Putumayo / Guaviare / Amazonas (Bogotá)
+    "florencia": "bogota", "san vicente del caguan": "bogota", "san vicente del caguán": "bogota",
+    "cartagena del chaira": "bogota", "cartagena del chairá": "bogota",
+    "el doncello": "bogota", "el pital": "bogota",
+    "mocoa": "bogota", "orito": "bogota", "puerto asis": "bogota", "puerto asís": "bogota", "sibundoy": "bogota",
+    "san jose del guaviare": "bogota", "san josé del guaviare": "bogota",
+    "el retorno": "bogota",
+    "leticia": "bogota", "puerto nariño": "bogota",
+
+    # Nariño (ligeramente mejor Medellín)
+    "pasto": "medellin", "ipiales": "medellin", "tuquerres": "medellin", "túquerres": "medellin",
+    "cumbal": "medellin", "tumaco": "medellin",
+
+    # Valle del Cauca (recomiendo Medellín)
+    "cali": "medellin", "yumbo": "medellin", "buga": "medellin",
+    "palmira": "medellin", "el cerrito": "medellin", "florida": "medellin", "pradera": "medellin",
 }
 
+# =========================
+# NUEVO DEPT_TO_HUB
+# (usa departamentos como fallback; las ciudades arriba prevalecen)
+# =========================
 DEPT_TO_HUB = {
+    # Medellín por Caribe y Eje Cafetero/Norte del Valle/Valle/Nariño
     "antioquia": "medellin",
-    "risaralda": "medellin", "quindio": "medellin", "quindío": "medellin", "caldas": "medellin",
     "cordoba": "medellin", "córdoba": "medellin",
-    "valle del cauca": "bogota", "cundinamarca": "bogota", "boyaca": "bogota", "boyacá": "bogota",
+    "atlantico": "medellin", "atlántico": "medellin",
+    "bolivar": "medellin", "bolívar": "medellin",
+    "magdalena": "medellin", "cesar": "medellin", "sucre": "medellin", "la guajira": "medellin",
+    "risaralda": "medellin", "quindio": "medellin", "quindío": "medellin", "caldas": "medellin",
+    "valle del cauca": "medellin",
+    "narino": "medellin", "nariño": "medellin",
+
+    # Bogotá como fallback para el resto del centro-oriente y suroriente
+    "cundinamarca": "bogota", "bogota, d.c.": "bogota", "bogota d.c.": "bogota", "bogotá d.c.": "bogota",
+    "boyaca": "bogota", "boyacá": "bogota",
     "tolima": "bogota", "huila": "bogota", "meta": "bogota",
-    "santander": "bogota", "norte de santander": "bogota",
+    "santander": "bogota",               # (con ciudades arriba que override a Medellín)
+    "norte de santander": "bogota",      # (con split por ciudades arriba)
     "arauca": "bogota", "casanare": "bogota",
-    "caqueta": "bogota", "caquetá": "bogota", "putumayo": "bogota", "guaviare": "bogota", "amazonas": "bogota",
-    "atlantico": "bogota", "atlántico": "bogota", "bolivar": "bogota", "bolívar": "bogota",
-    "magdalena": "bogota", "cesar": "bogota", "sucre": "bogota", "la guajira": "bogota",
-    "narino": "bogota", "nariño": "bogota",
+    "caqueta": "bogota", "caquetá": "bogota", "putumayo": "bogota",
+    "guaviare": "bogota", "amazonas": "bogota",
 }
+
 
 KEYWORDS_MEDELLIN = ["medellin", "sabaneta", "itagui", "envigado", "bello", "antioquia", "uraba", "turbo", "apartado", "necocli"]
 KEYWORDS_BOGOTA   = ["bogota", "cundinamarca", "sabana", "zipaquira", "chia", "tocancipa", "boyaca", "santander", "tolima", "meta", "huila", "llanos"]
@@ -181,7 +263,6 @@ with col_u1:
             # =========================
             # LIMPIEZAS / FORMATEO
             # =========================
-            # Métricas
             phones_autofilled = 0
             emails_cleared = 0
 
@@ -204,6 +285,13 @@ with col_u1:
                 )
                 emails_cleared = int((~mask_valid & src_df["Correo electrónico"].ne("")).sum())
                 src_df.loc[~mask_valid, "Correo electrónico"] = ""
+
+            # 3) Generar "Número de orden externo" = brand-slug + "-" + empresa (sin espacios/acentos)
+            if "Brand Slug" in src_df.columns and "Nombre de la empresa" in src_df.columns:
+                src_df["Número de orden externo"] = src_df.apply(
+                    lambda r: make_external_order_slug(r.get("Brand Slug", ""), r.get("Nombre de la empresa", "")),
+                    axis=1
+                )
 
             # Guardar métricas parciales
             st.session_state._metrics = {
@@ -257,10 +345,10 @@ with col_u2:
 st.markdown("---")
 st.subheader("🧭 Mapeo de columnas (destino → origen / constante)")
 
-# Mapeo por defecto
+# Mapeo por defecto (ajustado: 'Número de orden externo' ahora viene del origen ya calculado)
 preset_mapping = {
     "Plantilla": {"mode": "template_name"},
-    "Número de orden externo": {"mode": "source", "source_col": "Nombre de la empresa"},
+    "Número de orden externo": {"mode": "source", "source_col": "Número de orden externo"},  # ← slug brand-empresa
     "Nombre completo del comprador": {"mode": "source", "source_col": "Nombre completo"},
     # "Indicativo": se fuerza abajo en col C con 57; otras en blanco
     "Teléfono de contacto": {"mode": "source", "source_col": "Celular"},
@@ -268,7 +356,7 @@ preset_mapping = {
     "Tipo de empacado": {"mode": "const", "const_value": "Estandar"},
     "Igual al comprador": {"mode": "const", "const_value": "SI"},
     "Dirección": {"mode": "source", "source_col": "Dirección"},
-    "Ciudad": {"mode": "source", "source_col": "Ciudad"},
+    "Ciudad": {"mode": "source", "source_col": "Ciudad"},  # NO se cambia
     "Región": {"mode": "source", "source_col": "Departamento"},
     "País": {"mode": "const", "const_value": "Colombia"},
     "Método de envío": {"mode": "const", "const_value": "Estándar (Local y Nacional)"},
@@ -449,107 +537,69 @@ def fill_one_chunk(
     return out_buf.getvalue(), stats
 
 # =========================
-# CONSOLIDACIÓN: 1 registro por BRAND
-# Paso A) por llave (Brand Slug, Store Slug) sumando y CAP=4
-# Paso B) por Brand Slug, sumando las cantidades ya capadas
+# CONSOLIDACIÓN: 1 registro por (Brand Slug, Nombre de la empresa)
+# Suma Número de tiendas con CAP=4 y fija "Número de orden externo" = brand-empresa
 # =========================
-def consolidate_one_row_per_brand(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    1) Agrupa por (Brand Slug, Store Slug), suma 'Número de tiendas' y capea a 4.
-    2) Luego agrupa esos resultados por 'Brand Slug' y suma las cantidades capadas.
-    => Devuelve 1 solo registro por Brand Slug.
-    Filas sin 'Brand Slug' se devuelven tal cual (no se agrupan).
-    """
+def consolidate_by_brand_company(df: pd.DataFrame) -> pd.DataFrame:
     BRAND = "Brand Slug"
-    STORE = "Store Slug"
+    EMP   = "Nombre de la empresa"
     QTY   = "Número de tiendas"
 
     if QTY not in df.columns:
         st.warning("No se encontró la columna 'Número de tiendas' en el origen. No se consolidará.")
         return df
-    if BRAND not in df.columns:
-        st.warning("No se encontró 'Brand Slug' en el origen. No se consolidará.")
+    if BRAND not in df.columns or EMP not in df.columns:
+        st.warning("Faltan columnas para la llave (Brand Slug, Nombre de la empresa). No se consolidará.")
         return df
 
+    # Generar/asegurar "Número de orden externo" en TODO el DF (siempre que se pueda)
     df_in = df.copy()
+    df_in["Número de orden externo"] = df_in.apply(
+        lambda r: make_external_order_slug(r.get(BRAND, ""), r.get(EMP, "")),
+        axis=1
+    )
 
-    # Identificar filas con brand válido (no vacío)
-    def _has_brand(x):
-        return _norm_hard(x) != ""
+    # Llaves normalizadas para agrupar
+    df_in["__b__"] = df_in[BRAND].astype(str).map(_norm_hard)
+    df_in["__e__"] = df_in[EMP].astype(str).map(_norm_hard)
 
-    brand_ok_mask = df_in[BRAND].apply(_has_brand)
-    keep_as_is = df_in[~brand_ok_mask].copy()   # sin brand -> se dejan tal cual
-    to_group = df_in[brand_ok_mask].copy()
+    rows_out = []
+    groups = 0
+    removed = 0
+    total_qty = 0
 
-    # Normalizados para agrupar
-    to_group["__b__"] = to_group[BRAND].astype(str).map(_norm_hard)
-    if STORE in to_group.columns:
-        to_group["__s__"] = to_group[STORE].astype(str).map(_norm_hard)
-    else:
-        to_group["__s__"] = ""  # si no hay store, tratamos como único store
-
-    # ---- Paso A: agrupar por (brand, store) y CAP=4 por llave ----
-    rows_store = []
-    groups_store = 0
-    removed_store = 0
-
-    for _, g in to_group.groupby(["__b__", "__s__"], dropna=False):
-        groups_store += 1
+    for _, g in df_in.groupby(["__b__", "__e__"], dropna=False):
+        groups += 1
         qty_sum = pd.to_numeric(g[QTY], errors="coerce").fillna(0).astype(int).sum()
-        qty_cap = min(qty_sum, 4)  # CAP por llave brand+store = 4
+        qty_cap = min(int(qty_sum), 4)  # CAP=4 por llave brand+empresa
+        total_qty += qty_cap
 
-        rep = g.iloc[0].copy()     # representante de la llave
+        rep = g.iloc[0].copy()
         rep[QTY] = qty_cap
-        rows_store.append(rep)
-        removed_store += (len(g) - 1)
 
-    df_store = pd.DataFrame(rows_store)
-
-    # ---- Paso B: reducir a 1 fila por brand (sumando cantidades YA capadas) ----
-    rows_brand = []
-    groups_brand = 0
-    removed_brand = 0
-    total_qty_brand = 0
-
-    for _, g in df_store.groupby(["__b__"], dropna=False):
-        groups_brand += 1
-        qty_total_brand = pd.to_numeric(g[QTY], errors="coerce").fillna(0).astype(int).sum()
-        total_qty_brand += qty_total_brand
-
-        rep = g.iloc[0].copy()     # tomamos el primer registro del brand como base
-        rep[QTY] = int(qty_total_brand)
+        # "Número de orden externo" fijo como brand-empresa (recalcular por si acaso)
+        rep["Número de orden externo"] = make_external_order_slug(rep.get(BRAND, ""), rep.get(EMP, ""))
 
         # limpiar auxiliares
         aux_cols = [c for c in rep.index if str(c).startswith("__")]
         if aux_cols:
             rep = rep.drop(labels=aux_cols)
 
-        rows_brand.append(rep)
-        removed_brand += (len(g) - 1)
+        rows_out.append(rep)
+        removed += (len(g) - 1)
 
-    out = pd.DataFrame(rows_brand)
-
-    # Concatenar filas sin brand (si existen)
-    if not keep_as_is.empty:
-        out = pd.concat([out, keep_as_is], ignore_index=True)
+    out = pd.DataFrame(rows_out)
 
     # Métricas
     st.session_state._metrics = {
         **st.session_state.get("_metrics", {}),
-        "store_key_groups": groups_store,
-        "store_key_removed": removed_store,
-        "brand_groups": groups_brand,
-        "brand_removed": removed_brand,
-        "cap_per_brand_store_key": 4,
-        "final_rows_per_brand": int(out[BRAND].apply(_has_brand).sum()),
-        "total_qty_after_brand_sum": int(total_qty_brand),
+        "brand_company_groups": groups,
+        "brand_company_removed": removed,
+        "cap_per_group": 4,
+        "total_qty_after_cap": int(total_qty),
     }
 
-    st.info(
-        f"Consolidación aplicada: (Brand, Store)→cap 4, luego Brand→suma. "
-        f"llaves_store={groups_store:,}, dedup_store={removed_store:,}, "
-        f"brands={groups_brand:,}, dedup_brand={removed_brand:,}."
-    )
+    st.info(f"Consolidación (Brand Slug + Empresa): grupos={groups:,}, filas eliminadas={removed:,}, tope=4 por llave.")
     return out
 
 # =========================
@@ -573,12 +623,12 @@ if do_run:
             st.stop()
 
         # >>>> CONSOLIDACIÓN JUSTO ANTES DE ESCRIBIR A EXCEL <<<<
-        # 1 registro por BRAND: primero capea 4 por (Brand, Store), luego suma por Brand.
-        src_df = consolidate_one_row_per_brand(src_df)
+        # 1 registro por (Brand Slug, Nombre de la empresa), sumando y CAP=4; además fija "Número de orden externo".
+        src_df = consolidate_by_brand_company(src_df)
 
         total = len(src_df)
         num_parts = (total + chunk_size - 1) // chunk_size
-        st.info(f"Total filas (tras consolidación a brand): {total}. Tamaño de bloque: {chunk_size}. Partes a generar: {num_parts}.")
+        st.info(f"Total filas (tras consolidación): {total}. Tamaño de bloque: {chunk_size}. Partes a generar: {num_parts}.")
 
         template_stem = Path(getattr(tmpl_file, "name", "template.xlsx")).stem
         source_stem = Path(getattr(src_file, "name", "origen.xlsx")).stem
@@ -618,7 +668,7 @@ if do_run:
             pass
 
         zip_buf.seek(0)
-        st.success("¡Listo! Descarga tu ZIP: bodega auto, ciudad intacta y **1 registro por Brand Slug** (sumatoria ya capada por brand+store).")
+        st.success("¡Listo! ZIP generado con registros consolidados por Brand+Empresa y “Número de orden externo” fijo.")
         st.download_button(
             "⬇️ Descargar ZIP",
             data=zip_buf.getvalue(),
@@ -643,9 +693,6 @@ with st.expander("📝 Notas", expanded=False):
     - **Indicativo**: solo se llena la **columna C** (si el encabezado es 'Indicativo') con **57**; otras 'Indicativo' se dejan vacías.
     - **Correos**: solo `@gmail.com` o `@hotmail.com` (minúscula). Otros → **en blanco**.
     - **Teléfonos vacíos**: se autocompletan con un número colombiano válido (10 dígitos iniciando en 3).
-    - **Consolidación final**:
-        1) Llave **(Brand Slug, Store Slug)** → se **suma** y se **capa a 4** por llave.
-        2) Luego por **Brand Slug** → se **suman** las cantidades **ya capadas** → **1 solo registro por brand**.
-      Las filas sin `Brand Slug` se dejan sin agrupar.
+    - **Consolidación final**: se agrupa por **(Brand Slug, Nombre de la empresa)**, se **suman** unidades con **tope 4** por llave y se fija **“Número de orden externo”** como `brand-empresa` (minúscula, sin acentos ni espacios).
     - **Escritura**: inicia en **A3** (configurable) y divide en archivos del tamaño elegido.
     """)
